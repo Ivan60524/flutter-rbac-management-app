@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "787944407190",
+    "project_id": "ministry-hub-7bbc9",
+    "storage_bucket": "ministry-hub-7bbc9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:787944407190:android:7b6eea42f67ab03861c2b7",
+        "android_client_info": {
+          "package_name": "com.example.tenantitla_congregacion"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB6jt9geLsA810mNWGkcDxUGlk9q_h_OUI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
