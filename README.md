@@ -1,17 +1,50 @@
-# flutter-rbac-management-app
+# Flutter RBAC Management App
 
-A new Flutter project.
+Mobile application built with Flutter implementing authentication, role-based access control (RBAC), and Firebase backend services.
 
-## Getting Started
+## Overview
 
-This project is a starting point for a Flutter application.
+This project demonstrates:
 
-A few resources to get you started if this is your first Flutter project:
+- Firebase Authentication login
+- Cloud Firestore database integration
+- Role-based access control (RBAC)
+- Dynamic dashboard based on user permissions
+- Multi-user access architecture
+- Modular Flutter architecture
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Tech Stack
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- Flutter
+- Dart
+- Firebase Authentication
+- Cloud Firestore
+- Android Studio
+
+## Current Features
+
+✅ User login authentication  
+✅ Firebase integration  
+✅ Role management (Secretary / Coordinator / Auxiliary roles)  
+✅ Dashboard with permission-based modules  
+✅ Publisher management module  
+✅ Group management module  
+✅ Reports module  
+✅ Android emulator testing  
+
+## Work in Progress
+
+- Secure Firestore rules
+- Role restrictions at page level
+- UI/UX improvements
+- Production-ready authentication validation
+- Data synchronization improvements
+
+## Project Purpose
+
+Portfolio project demonstrating mobile application architecture, access control implementation, and Firebase integration using Flutter.
+
+## Author
+
+**Iván Suárez**  
+QA Engineer | Mobile Testing | API Testing | Automation Learning
