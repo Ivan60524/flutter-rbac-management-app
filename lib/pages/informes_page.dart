@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
@@ -12,6 +11,7 @@ class InformesPage extends StatefulWidget {
 }
 
 class _InformesPageState extends State<InformesPage> {
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;
   List<Map<String, String>> informes = [];
   List<Map<String, String>> publicadores = [];
   List<Map<String, String>> asistencias = [];
@@ -34,90 +34,115 @@ class _InformesPageState extends State<InformesPage> {
     'Enero 2027',
   ];
 
-  Future<void> cargarInformes() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? data = prefs.getString('informes');
-
-    if (data != null) {
-      List<dynamic> decoded = jsonDecode(data);
-
-      setState(() {
-        informes = decoded
-            .map((item) => Map<String, String>.from(item))
-            .toList();
-      });
-    }
-  }
-
-  Future<void> cargarPublicadores() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? data = prefs.getString('publicadores');
-
-    if (data != null) {
-      List<dynamic> decoded = jsonDecode(data);
-
-      setState(() {
-        publicadores = decoded
-            .map((item) => Map<String, String>.from(item))
-            .toList();
-      });
-    }
-  }
-
-  Future<void> guardarInformes() async {
-    final prefs = await SharedPreferences.getInstance();
-    String data = jsonEncode(informes);
-    await prefs.setString('informes', data);
-  }
-
-  void agregarInforme(
+  Future<void> agregarInforme(
       String nombre,
       String cursos,
       String tipo,
       String comentarios,
       String horas,
       String participacion,
-      ) {
-    informes.removeWhere(
-          (informe) =>
-      informe['nombre'] == nombre &&
-          informe['mes'] == mesSeleccionado,
-    );
+      {String? docId}
+      ) async {
+    final datos = {
+      'nombre': nombre,
+      'cursos': cursos,
+      'tipo': tipo,
+      'comentarios': comentarios,
+      'horas': horas,
+      'participacion': participacion,
+      'mes': mesSeleccionado,
+    };
 
-    setState(() {
-      informes.add({
-        'nombre': nombre,
-        'cursos': cursos,
-        'tipo': tipo,
-        'comentarios': comentarios,
-        'horas': horas,
-        'participacion': participacion,
-        'mes': mesSeleccionado,
-      });
-    });
+    try {
+      final existentes = await firestore
+          .collection('informes')
+          .where('nombre', isEqualTo: nombre)
+          .where('mes', isEqualTo: mesSeleccionado)
+          .get();
 
-    guardarInformes();
-  }
+      if (docId == null && existentes.docs.isNotEmpty) {
+        if (!mounted) return;
 
-  Future<void> cargarAsistencias() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? data = prefs.getString('asistencias');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Este publicador ya tiene un informe en este mes',
+            ),
+          ),
+        );
+        return;
+      }
 
-    if (data != null) {
-      List<dynamic> decoded = jsonDecode(data);
+      if (docId != null) {
+        await firestore.collection('informes').doc(docId).update(datos);
+      } else {
+        await firestore.collection('informes').add(datos);
+      }
 
-      setState(() {
-        asistencias = decoded
-            .map((item) => Map<String, String>.from(item))
-            .toList();
-      });
+      await cargarInformes();
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al guardar informe: $e'),
+        ),
+      );
     }
   }
 
-  Future<void> guardarAsistencias() async {
-    final prefs = await SharedPreferences.getInstance();
-    String data = jsonEncode(asistencias);
-    await prefs.setString('asistencias', data);
+  Future<void> cargarPublicadores() async {
+    final snapshot = await firestore.collection('publicadores').get();
+
+    setState(() {
+      publicadores = snapshot.docs.map((doc) {
+        return {
+          'nombre': doc['nombre'].toString(),
+          'grupo': doc['grupo'].toString(),
+        };
+      }).toList();
+    });
+  }
+
+  Future<void> cargarInformes() async {
+    final snapshot = await firestore.collection('informes').get();
+
+    setState(() {
+      informes = snapshot.docs.map((doc) {
+        return {
+          ...Map<String, String>.from(doc.data()),
+          'id': doc.id,
+        };
+      }).toList();
+    });
+  }
+
+  Future<void> cargarAsistencias() async {
+    final snapshot = await firestore.collection('asistencias').get();
+
+    setState(() {
+      asistencias = snapshot.docs.map((doc) {
+        return Map<String, String>.from(doc.data());
+      }).toList();
+    });
+  }
+
+  Future<void> guardarAsistencias(Map<String, String> datos) async {
+    final existentes = await firestore
+        .collection('asistencias')
+        .where('mes', isEqualTo: mesSeleccionado)
+        .get();
+
+    if (existentes.docs.isNotEmpty) {
+      await firestore
+          .collection('asistencias')
+          .doc(existentes.docs.first.id)
+          .update(datos);
+    } else {
+      await firestore.collection('asistencias').add(datos);
+    }
+
+    await cargarAsistencias();
   }
 
   Future<void> exportarPDF() async {
@@ -263,45 +288,134 @@ class _InformesPageState extends State<InformesPage> {
   }
 
   void mostrarOpcionesInforme(Map<String, String> informe) {
-    showDialog(
+    showModalBottomSheet(
       context: context,
+      backgroundColor: Colors.transparent,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Opciones'),
-          content: const Text('¿Qué deseas hacer con este informe?'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                mostrarFormulario(informeEditar: informe);
-              },
-              child: const Text('Editar'),
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(28),
+              topRight: Radius.circular(28),
             ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                eliminarInforme(informe);
-              },
-              child: const Text('Eliminar'),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text('Cancelar'),
-            ),
-          ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 50,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Text(
+                informe['nombre'] ?? 'Informe',
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              const Text(
+                'Selecciona una acción',
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 15,
+                ),
+              ),
+
+              const SizedBox(height: 28),
+
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                tileColor: const Color(0xFFF5F3FF),
+                leading: const CircleAvatar(
+                  backgroundColor: Color(0xFF7C3AED),
+                  child: Icon(
+                    Icons.edit,
+                    color: Colors.white,
+                  ),
+                ),
+                title: const Text(
+                  'Editar informe',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  mostrarFormulario(informeEditar: informe);
+                },
+              ),
+
+              const SizedBox(height: 14),
+
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                tileColor: const Color(0xFFFFF1F2),
+                leading: const CircleAvatar(
+                  backgroundColor: Colors.red,
+                  child: Icon(
+                    Icons.delete,
+                    color: Colors.white,
+                  ),
+                ),
+                title: const Text(
+                  'Eliminar informe',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  eliminarInforme(informe);
+                },
+              ),
+
+              const SizedBox(height: 18),
+
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Cerrar'),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
   }
 
-  void eliminarInforme(Map<String, String> informe) {
-    setState(() {
-      informes.remove(informe);
-    });
+  Future<void> eliminarInforme(Map<String, String> informe) async {
+    final id = informe['id'];
 
-    guardarInformes();
+    if (id != null) {
+      await firestore.collection('informes').doc(id).delete();
+      await cargarInformes();
+    }
   }
 
   void mostrarFormularioAsistencia() {
@@ -336,106 +450,230 @@ class _InformesPageState extends State<InformesPage> {
       sabado5.text = existente['sabado5'] ?? '';
     }
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Asistencia $mesSeleccionado'),
-          content: SingleChildScrollView(
-            child: Column(
-              children: [
-                const Text('Reunión entre semana (Martes)'),
+    InputDecoration campo(String label) {
+      return InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: Colors.grey.shade100,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+      );
+    }
 
-                TextField(
-                  controller: martes1,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Martes 1'),
-                ),
-                TextField(
-                  controller: martes2,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Martes 2'),
-                ),
-                TextField(
-                  controller: martes3,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Martes 3'),
-                ),
-                TextField(
-                  controller: martes4,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Martes 4'),
-                ),
-                TextField(
-                  controller: martes5,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Martes 5 (opcional)'),
-                ),
-
-                const SizedBox(height: 20),
-                const Text('Reunión fin de semana (Sábado)'),
-
-                TextField(
-                  controller: sabado1,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Sábado 1'),
-                ),
-                TextField(
-                  controller: sabado2,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Sábado 2'),
-                ),
-                TextField(
-                  controller: sabado3,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Sábado 3'),
-                ),
-                TextField(
-                  controller: sabado4,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Sábado 4'),
-                ),
-                TextField(
-                  controller: sabado5,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Sábado 5 (opcional)'),
-                ),
-              ],
+    Widget seccionTitulo(String texto, IconData icono) {
+      return Row(
+        children: [
+          Icon(icono, color: const Color(0xFF7C3AED)),
+          const SizedBox(width: 8),
+          Text(
+            texto,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
+        ],
+      );
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.90,
+          padding: const EdgeInsets.all(20),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(28),
             ),
-            ElevatedButton(
-              onPressed: () {
-                asistencias.removeWhere((a) => a['mes'] == mesSeleccionado);
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 50,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
 
-                setState(() {
-                  asistencias.add({
-                    'mes': mesSeleccionado,
+              const SizedBox(height: 16),
 
-                    'martes1': martes1.text,
-                    'martes2': martes2.text,
-                    'martes3': martes3.text,
-                    'martes4': martes4.text,
-                    'martes5': martes5.text,
+              Text(
+                'Asistencia $mesSeleccionado',
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
 
-                    'sabado1': sabado1.text,
-                    'sabado2': sabado2.text,
-                    'sabado3': sabado3.text,
-                    'sabado4': sabado4.text,
-                    'sabado5': sabado5.text,
-                  });
-                });
+              const SizedBox(height: 20),
 
-                guardarAsistencias();
-                Navigator.pop(context);
-              },
-              child: const Text('Guardar'),
-            ),
-          ],
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      seccionTitulo(
+                        'Reunión entre semana',
+                        Icons.calendar_today,
+                      ),
+                      const SizedBox(height: 16),
+
+                      TextField(
+                        controller: martes1,
+                        keyboardType: TextInputType.number,
+                        decoration: campo('Martes 1'),
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextField(
+                        controller: martes2,
+                        keyboardType: TextInputType.number,
+                        decoration: campo('Martes 2'),
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextField(
+                        controller: martes3,
+                        keyboardType: TextInputType.number,
+                        decoration: campo('Martes 3'),
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextField(
+                        controller: martes4,
+                        keyboardType: TextInputType.number,
+                        decoration: campo('Martes 4'),
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextField(
+                        controller: martes5,
+                        keyboardType: TextInputType.number,
+                        decoration: campo('Martes 5 (opcional)'),
+                      ),
+
+                      const SizedBox(height: 28),
+
+                      seccionTitulo(
+                        'Reunión fin de semana',
+                        Icons.groups,
+                      ),
+                      const SizedBox(height: 16),
+
+                      TextField(
+                        controller: sabado1,
+                        keyboardType: TextInputType.number,
+                        decoration: campo('Sábado 1'),
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextField(
+                        controller: sabado2,
+                        keyboardType: TextInputType.number,
+                        decoration: campo('Sábado 2'),
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextField(
+                        controller: sabado3,
+                        keyboardType: TextInputType.number,
+                        decoration: campo('Sábado 3'),
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextField(
+                        controller: sabado4,
+                        keyboardType: TextInputType.number,
+                        decoration: campo('Sábado 4'),
+                      ),
+                      const SizedBox(height: 12),
+
+                      TextField(
+                        controller: sabado5,
+                        keyboardType: TextInputType.number,
+                        decoration: campo('Sábado 5 (opcional)'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Cancelar'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF7C3AED),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      onPressed: () async {
+                        try {
+                          final Map<String, String> datos = {
+                            'mes': mesSeleccionado,
+                            'martes1': martes1.text.trim(),
+                            'martes2': martes2.text.trim(),
+                            'martes3': martes3.text.trim(),
+                            'martes4': martes4.text.trim(),
+                            'martes5': martes5.text.trim(),
+                            'sabado1': sabado1.text.trim(),
+                            'sabado2': sabado2.text.trim(),
+                            'sabado3': sabado3.text.trim(),
+                            'sabado4': sabado4.text.trim(),
+                            'sabado5': sabado5.text.trim(),
+                          };
+
+                          print('GUARDANDO ASISTENCIA...');
+                          print(datos);
+
+                          await guardarAsistencias(datos);
+
+                          if (!mounted) return;
+
+                          Navigator.pop(context);
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Asistencia guardada correctamente'),
+                            ),
+                          );
+                        } catch (e) {
+                          print('ERROR ASISTENCIAS: $e');
+
+                          if (!mounted) return;
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error al guardar: $e'),
+                            ),
+                          );
+                        }
+                      },
+                      child: const Text('Guardar'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         );
       },
     );
@@ -461,125 +699,203 @@ class _InformesPageState extends State<InformesPage> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
+              ),
               title: Text(
                 informeEditar == null ? 'Nuevo Informe' : 'Editar Informe',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 22,
+                ),
               ),
               content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    DropdownButtonFormField<String>(
-                      value: publicadorSeleccionado,
-                      decoration: const InputDecoration(
-                        labelText: 'Publicador',
-                      ),
-                      items: publicadores.map((publicador) {
-                        return DropdownMenuItem(
-                          value: publicador['nombre'],
-                          child: Text(publicador['nombre']!),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setModalState(() {
-                          publicadorSeleccionado = value;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      value: tipoSeleccionado,
-                      decoration: const InputDecoration(
-                        labelText: 'Tipo de servicio',
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'Publicador',
-                          child: Text('Publicador'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Precursor regular',
-                          child: Text('Precursor regular'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Precursor auxiliar',
-                          child: Text('Precursor auxiliar'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setModalState(() {
-                          tipoSeleccionado = value;
-                          if (tipoSeleccionado != 'Publicador') {
-                            participacionSeleccionada = '';
-                          }
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    if (tipoSeleccionado == 'Publicador')
+                child: SizedBox(
+                  width: 380,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       DropdownButtonFormField<String>(
-                        value: participacionSeleccionada,
-                        decoration: const InputDecoration(
-                          labelText: 'Participación',
+                        value: publicadorSeleccionado,
+                        decoration: InputDecoration(
+                          labelText: 'Publicador',
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        items: publicadores.map((publicador) {
+                          return DropdownMenuItem(
+                            value: publicador['nombre'],
+                            child: Text(publicador['nombre']!),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setModalState(() {
+                            publicadorSeleccionado = value;
+                          });
+                        },
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      DropdownButtonFormField<String>(
+                        value: tipoSeleccionado,
+                        decoration: InputDecoration(
+                          labelText: 'Tipo de servicio',
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: BorderSide.none,
+                          ),
                         ),
                         items: const [
                           DropdownMenuItem(
-                            value: 'Participó',
-                            child: Text('Participó'),
+                            value: 'Publicador',
+                            child: Text('Publicador'),
                           ),
                           DropdownMenuItem(
-                            value: 'No participó',
-                            child: Text('No participó'),
+                            value: 'Precursor regular',
+                            child: Text('Precursor regular'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Precursor auxiliar',
+                            child: Text('Precursor auxiliar'),
                           ),
                         ],
                         onChanged: (value) {
                           setModalState(() {
-                            participacionSeleccionada = value;
+                            tipoSeleccionado = value;
+
+                            if (tipoSeleccionado != 'Publicador') {
+                              participacionSeleccionada = '';
+                            }
                           });
                         },
                       ),
-                    if (tipoSeleccionado == 'Precursor regular' ||
-                        tipoSeleccionado == 'Precursor auxiliar')
+
+                      const SizedBox(height: 16),
+
+                      if (tipoSeleccionado == 'Publicador')
+                        DropdownButtonFormField<String>(
+                          value: participacionSeleccionada,
+                          decoration: InputDecoration(
+                            labelText: 'Participación',
+                            filled: true,
+                            fillColor: Colors.grey.shade100,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'Participó',
+                              child: Text('Participó'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'No participó',
+                              child: Text('No participó'),
+                            ),
+                          ],
+                          onChanged: (value) {
+                            setModalState(() {
+                              participacionSeleccionada = value;
+                            });
+                          },
+                        ),
+
+                      if (tipoSeleccionado == 'Precursor regular' ||
+                          tipoSeleccionado == 'Precursor auxiliar')
+                        TextField(
+                          controller: horasController,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: 'Horas',
+                            filled: true,
+                            fillColor: Colors.grey.shade100,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(18),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
+
+                      const SizedBox(height: 16),
+
                       TextField(
-                        controller: horasController,
+                        controller: cursosController,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(
-                          labelText: 'Horas',
+                        decoration: InputDecoration(
+                          labelText: 'Cursos bíblicos',
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: BorderSide.none,
+                          ),
                         ),
                       ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: cursosController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Cursos bíblicos',
+
+                      const SizedBox(height: 16),
+
+                      TextField(
+                        controller: comentariosController,
+                        maxLines: 3,
+                        decoration: InputDecoration(
+                          labelText: 'Comentarios',
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(18),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: comentariosController,
-                      decoration: const InputDecoration(
-                        labelText: 'Comentarios',
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
+              ),
+              actionsPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
               ),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancelar'),
+                  child: const Text(
+                    'Cancelar',
+                    style: TextStyle(
+                      color: Colors.grey,
+                    ),
+                  ),
                 ),
                 ElevatedButton(
-                  onPressed: () {
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7C3AED),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 14,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                  onPressed: () async {
                     if (publicadorSeleccionado != null &&
                         tipoSeleccionado != null) {
-                      agregarInforme(
+                      await agregarInforme(
                         publicadorSeleccionado!,
                         cursosController.text,
                         tipoSeleccionado!,
                         comentariosController.text,
                         horasController.text,
                         participacionSeleccionada ?? '',
+                        docId: informeEditar?['id'],
                       );
 
                       Navigator.pop(context);
@@ -601,6 +917,66 @@ class _InformesPageState extends State<InformesPage> {
     cargarInformes();
     cargarPublicadores();
     cargarAsistencias();
+  }
+
+  Widget encabezado() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Color(0xFF1E1B4B),
+            Color(0xFF7C3AED),
+            Color(0xFF6366F1),
+          ],
+        ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(28),
+          bottomRight: Radius.circular(28),
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  icon: const Icon(
+                    Icons.arrow_back_ios_new,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Informes',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Resumen y reportes congregacionales',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -673,18 +1049,23 @@ class _InformesPageState extends State<InformesPage> {
         : 0;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Informes'),
-        centerTitle: true,
-      ),
+      backgroundColor: const Color(0xFFF8FAFC),
       body: Column(
         children: [
+          encabezado(),
+
           Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(16),
             child: DropdownButtonFormField<String>(
               value: mesSeleccionado,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Mes del informe',
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: BorderSide.none,
+                ),
               ),
               items: meses.map((mes) {
                 return DropdownMenuItem(
@@ -701,67 +1082,97 @@ class _InformesPageState extends State<InformesPage> {
           ),
 
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF7C3AED),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
                     onPressed: mostrarFormularioAsistencia,
                     icon: const Icon(Icons.groups),
                     label: const Text('Asistencia'),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
                     onPressed: exportarPDF,
                     icon: const Icon(Icons.picture_as_pdf),
-                    label: const Text('Exportar PDF'),
+                    label: const Text('PDF'),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 10),
 
-          Card(
-            margin: const EdgeInsets.symmetric(horizontal: 12),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Text(
-                    'Resumen $mesSeleccionado',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+          const SizedBox(height: 16),
+
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Text(
+                  'Resumen $mesSeleccionado',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
                   ),
-                  const SizedBox(height: 10),
-                  Text('🏘 Activos congregación: $activosCongregacion'),
-                  Text('📨 Informaron: $informaron'),
-                  Text('❗ No informaron: $noInformaron'),
-                  const SizedBox(height: 10),
-                  Text('👥 Publicadores: $totalPublicadores'),
-                  Text('✅ Participaron: $participaron'),
-                  Text('❌ No participaron: $noParticiparon'),
-                  const SizedBox(height: 10),
-                  Text('⭐ Precursores regulares: $precursoresRegulares'),
-                  Text('⏱ Horas PR: $horasPR'),
-                  const SizedBox(height: 10),
-                  Text('🌟 Precursores auxiliares: $precursoresAuxiliares'),
-                  Text('⏱ Horas PA: $horasPA'),
-                  const SizedBox(height: 10),
-                  Text('📘 Cursos bíblicos: $cursosTotales'),
-                  const SizedBox(height: 10),
-                  Text('🏛 Promedio martes: $promedioMartes'),
-                  Text('🏛 Promedio sábado: $promedioSabado'),
-                ],
-              ),
+                ),
+                const SizedBox(height: 14),
+                Text('🏘 Activos congregación: $activosCongregacion'),
+                Text('📨 Informaron: $informaron'),
+                Text('❗ No informaron: $noInformaron'),
+                const SizedBox(height: 10),
+                Text('👥 Publicadores: $totalPublicadores'),
+                Text('✅ Participaron: $participaron'),
+                Text('❌ No participaron: $noParticiparon'),
+                const SizedBox(height: 10),
+                Text('⭐ Precursores regulares: $precursoresRegulares'),
+                Text('⏱ Horas PR: $horasPR'),
+                const SizedBox(height: 10),
+                Text('🌟 Precursores auxiliares: $precursoresAuxiliares'),
+                Text('⏱ Horas PA: $horasPA'),
+                const SizedBox(height: 10),
+                Text('📘 Cursos bíblicos: $cursosTotales'),
+                const SizedBox(height: 10),
+                Text('🏛 Promedio martes: $promedioMartes'),
+                Text('🏛 Promedio sábado: $promedioSabado'),
+              ],
             ),
           ),
+
+          const SizedBox(height: 12),
+
           Expanded(
             child: ListView.builder(
+              padding: const EdgeInsets.only(bottom: 90),
               itemCount: informesDelMes.length,
               itemBuilder: (context, index) {
                 final informe = informesDelMes[index];
@@ -776,25 +1187,57 @@ class _InformesPageState extends State<InformesPage> {
                   '${informe['tipo']} • Horas: ${informe['horas']} • Cursos: ${informe['cursos']}';
                 }
 
-                return ListTile(
-                  leading: const Icon(Icons.assignment),
-                  title: Text(informe['nombre'] ?? ''),
-                  subtitle: Text(subtitulo),
-                  onTap: () {
-                    mostrarOpcionesInforme(informe);
-                  },
+                return Container(
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.06),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: const Color(0xFF7C3AED),
+                      child: const Icon(
+                        Icons.assignment,
+                        color: Colors.white,
+                      ),
+                    ),
+                    title: Text(
+                      informe['nombre'] ?? '',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Text(subtitulo),
+                    onTap: () {
+                      mostrarOpcionesInforme(informe);
+                    },
+                  ),
                 );
               },
             ),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          mostrarFormulario();
-        },
-        child: const Icon(Icons.add),
-      ),
+        floatingActionButton: FloatingActionButton(
+          backgroundColor: const Color(0xFF7C3AED),
+          onPressed: () {
+            mostrarFormulario();
+          },
+          child: const Icon(
+            Icons.add,
+            color: Colors.white,
+          ),
+        ),
     );
   }
 }

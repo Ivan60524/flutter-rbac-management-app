@@ -14,6 +14,7 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController passwordController = TextEditingController();
 
   bool cargando = false;
+  bool ocultarPassword = true;
 
   Future<void> iniciarSesion() async {
     setState(() {
@@ -48,7 +49,10 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mensaje)),
+        SnackBar(
+          backgroundColor: Colors.redAccent,
+          content: Text(mensaje),
+        ),
       );
     }
 
@@ -59,61 +63,164 @@ class _LoginPageState extends State<LoginPage> {
     });
   }
 
+  InputDecoration inputDecoracion(
+      String hint,
+      IconData icono, {
+        Widget? suffixIcon,
+      }) {
+    return InputDecoration(
+      hintText: hint,
+      prefixIcon: Icon(icono, color: const Color(0xFF6366F1)),
+      suffixIcon: suffixIcon,
+      filled: true,
+      fillColor: Colors.white.withOpacity(0.95),
+      contentPadding: const EdgeInsets.symmetric(
+        vertical: 18,
+        horizontal: 20,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(18),
+        borderSide: BorderSide.none,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(25),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.admin_panel_settings,
-                size: 80,
-                color: Colors.blue,
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Tenantitla Congregación',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 40),
-              TextField(
-                controller: emailController,
-                decoration: InputDecoration(
-                  hintText: 'Correo electrónico',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: passwordController,
-                obscureText: true,
-                decoration: InputDecoration(
-                  hintText: 'Contraseña',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 30),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: cargando ? null : iniciarSesion,
-                  child: cargando
-                      ? const CircularProgressIndicator()
-                      : const Text('Ingresar'),
-                ),
-              ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF1E1B4B),
+              Color(0xFF7C3AED),
+              Color(0xFF6366F1),
             ],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Container(
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.25),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withOpacity(0.2),
+                      ),
+                      child: const Icon(
+                        Icons.dashboard_customize_rounded,
+                        size: 60,
+                        color: Colors.white,
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    const Text(
+                      'Tenantitla',
+                      style: TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                        letterSpacing: 1,
+                      ),
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Text(
+                      'Sistema de gestión colaborativa',
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: Colors.white.withOpacity(0.9),
+                      ),
+                    ),
+
+                    const SizedBox(height: 35),
+
+                    TextField(
+                      controller: emailController,
+                      decoration: inputDecoracion(
+                        'Correo electrónico',
+                        Icons.email_outlined,
+                      ),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    TextField(
+                      controller: passwordController,
+                      obscureText: ocultarPassword,
+                      decoration: inputDecoracion(
+                        'Contraseña',
+                        Icons.lock_outline,
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            ocultarPassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                            color: const Color(0xFF6366F1),
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              ocultarPassword = !ocultarPassword;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 28),
+
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: cargando ? null : iniciarSesion,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF1E1B4B),
+                          elevation: 8,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                        ),
+                        child: cargando
+                            ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                          ),
+                        )
+                            : const Text(
+                          'Ingresar',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),

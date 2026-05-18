@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class GruposPage extends StatefulWidget {
   const GruposPage({super.key});
@@ -10,35 +10,38 @@ class GruposPage extends StatefulWidget {
 }
 
 class _GruposPageState extends State<GruposPage> {
-  List<String> grupos = [
-    'Grupo 1',
-    'Grupo 2',
-    'Grupo 3',
-  ];
-
-  Future<void> cargarGrupos() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? data = prefs.getString('grupos');
-
-    if (data != null) {
-      List<dynamic> decoded = jsonDecode(data);
-
-      setState(() {
-        grupos = decoded.map((item) => item.toString()).toList();
-      });
-    }
-  }
-
-  Future<void> guardarGrupos() async {
-    final prefs = await SharedPreferences.getInstance();
-    String data = jsonEncode(grupos);
-    await prefs.setString('grupos', data);
-  }
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;
+  bool esSecretario = false;
 
   @override
   void initState() {
     super.initState();
-    cargarGrupos();
+    verificarUsuario();
+    crearGruposIniciales();
+  }
+
+  Future<void> verificarUsuario() async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user != null && user.email == 'ivan.suarez@tenantitla.app') {
+      setState(() {
+        esSecretario = true;
+      });
+    }
+  }
+
+  Future<void> crearGruposIniciales() async {
+    final snapshot = await firestore.collection('grupos').get();
+
+    if (snapshot.docs.isEmpty) {
+      await firestore.collection('grupos').add({'nombre': 'Grupo 1'});
+      await firestore.collection('grupos').add({'nombre': 'Grupo 2'});
+      await firestore.collection('grupos').add({'nombre': 'Grupo 3'});
+    }
+  }
+
+  Color colorGrupo(String grupo) {
+    return const Color(0xFF7C3AED);
   }
 
   void mostrarFormularioNuevoGrupo() {
@@ -48,11 +51,17 @@ class _GruposPageState extends State<GruposPage> {
       context: context,
       builder: (context) {
         return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
           title: const Text('Nuevo Grupo'),
           content: TextField(
             controller: grupoController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Nombre del grupo',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
           ),
           actions: [
@@ -61,13 +70,17 @@ class _GruposPageState extends State<GruposPage> {
               child: const Text('Cancelar'),
             ),
             ElevatedButton(
-              onPressed: () {
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF7C3AED),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () async {
                 if (grupoController.text.isNotEmpty) {
-                  setState(() {
-                    grupos.add(grupoController.text);
+                  await firestore.collection('grupos').add({
+                    'nombre': grupoController.text,
+                    'fechaCreacion': FieldValue.serverTimestamp(),
                   });
 
-                  guardarGrupos();
                   Navigator.pop(context);
                 }
               },
@@ -79,19 +92,27 @@ class _GruposPageState extends State<GruposPage> {
     );
   }
 
-  void editarGrupo(int index) {
+  void editarGrupo(String docId, String nombreActual) {
+    if (!esSecretario) return;
+
     TextEditingController grupoController =
-    TextEditingController(text: grupos[index]);
+    TextEditingController(text: nombreActual);
 
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
           title: const Text('Editar Grupo'),
           content: TextField(
             controller: grupoController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Nombre del grupo',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
           ),
           actions: [
@@ -100,12 +121,15 @@ class _GruposPageState extends State<GruposPage> {
               child: const Text('Cancelar'),
             ),
             ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  grupos[index] = grupoController.text;
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () async {
+                await firestore.collection('grupos').doc(docId).update({
+                  'nombre': grupoController.text,
                 });
 
-                guardarGrupos();
                 Navigator.pop(context);
               },
               child: const Text('Actualizar'),
@@ -116,12 +140,10 @@ class _GruposPageState extends State<GruposPage> {
     );
   }
 
-  void eliminarGrupo(int index) {
-    setState(() {
-      grupos.removeAt(index);
-    });
+  void eliminarGrupo(String docId) async {
+    if (!esSecretario) return;
 
-    guardarGrupos();
+    await firestore.collection('grupos').doc(docId).delete();
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -130,43 +152,193 @@ class _GruposPageState extends State<GruposPage> {
     );
   }
 
+  Widget encabezado() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Color(0xFF1E1B4B),
+            Color(0xFF7C3AED),
+            Color(0xFF6366F1),
+          ],
+        ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(28),
+          bottomRight: Radius.circular(28),
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  icon: const Icon(
+                    Icons.arrow_back_ios_new,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Grupos',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Administración de grupos',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 15,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget cardGrupo(String id, String nombre) {
+    final color = colorGrupo(nombre);
+
+    Widget contenido = Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: color,
+            child: const Icon(
+              Icons.groups_rounded,
+              color: Colors.white,
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              nombre,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          if (esSecretario)
+            const Icon(
+              Icons.edit_rounded,
+              color: Colors.grey,
+            ),
+        ],
+      ),
+    );
+
+    if (!esSecretario) return contenido;
+
+    return Dismissible(
+      key: Key(id),
+      direction: DismissDirection.endToStart,
+      onDismissed: (_) => eliminarGrupo(id),
+      background: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.only(right: 28),
+        alignment: Alignment.centerRight,
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: const Icon(
+          Icons.delete,
+          color: Colors.white,
+          size: 30,
+        ),
+      ),
+      child: GestureDetector(
+        onTap: () {
+          editarGrupo(id, nombre);
+        },
+        child: contenido,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Grupos'),
-      ),
-      floatingActionButton: FloatingActionButton(
+      backgroundColor: const Color(0xFFF8FAFC),
+      floatingActionButton: esSecretario
+          ? FloatingActionButton(
+        backgroundColor: const Color(0xFF7C3AED),
         onPressed: mostrarFormularioNuevoGrupo,
-        child: const Icon(Icons.add),
-      ),
-      body: ListView.builder(
-        itemCount: grupos.length,
-        itemBuilder: (context, index) {
-          return Dismissible(
-            key: Key(grupos[index]),
-            direction: DismissDirection.endToStart,
-            onDismissed: (direction) {
-              eliminarGrupo(index);
-            },
-            background: Container(
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.only(right: 20),
-              color: Colors.red,
-              child: const Icon(
-                Icons.delete,
-                color: Colors.white,
-              ),
-            ),
-            child: ListTile(
-              onTap: () {
-                editarGrupo(index);
+        child: const Icon(Icons.add, color: Colors.white),
+      )
+          : null,
+      body: Column(
+        children: [
+          encabezado(),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: firestore.collection('grupos').snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
+                }
+
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'No hay grupos registrados',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  );
+                }
+
+                final grupos = snapshot.data!.docs;
+
+                return ListView.builder(
+                  padding: const EdgeInsets.only(top: 10, bottom: 90),
+                  itemCount: grupos.length,
+                  itemBuilder: (context, index) {
+                    final grupo = grupos[index];
+
+                    return cardGrupo(
+                      grupo.id,
+                      grupo['nombre'],
+                    );
+                  },
+                );
               },
-              leading: const Icon(Icons.groups),
-              title: Text(grupos[index]),
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
